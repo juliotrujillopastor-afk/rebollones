@@ -1,39 +1,138 @@
-async function init() {
-    await loadModel();
+<script type="text/javascript">
+    // La URL del modelo apunta a tu carpeta en GitHub Pages
+    const URL = "./my_model/"; 
 
-    try {
-        // Detener cualquier cámara anterior
-        if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
-        if (webcam && webcam.running) webcam.stop();
-        document.getElementById("webcam-container").innerHTML = '';
+    let model, webcam, labelContainer, maxPredictions;
+    let modelLoaded = false;
+    let animationFrameId;
 
-        const flip = false; // No voltear para trasera
-        webcam = new tmImage.Webcam(200, 200, flip);
+    // Cargar el modelo (solo una vez)
+    async function loadModel() {
+        if (modelLoaded) return;
 
-        // ⚡ PASO CLAVE: Especificar la cámara trasera en setup
-        await webcam.setup({ facingMode: "environment" });
-        await webcam.play();
+        labelContainer = document.getElementById("label-container");
+        labelContainer.innerHTML = 'Cargando modelo y metadatos...';
 
-        document.getElementById("webcam-container").appendChild(webcam.canvas);
-        document.getElementById("cam-button").disabled = true;
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
 
-        loop();
-        document.getElementById("label-container").innerHTML = 'Cámara activa (trasera). ¡Enfoca la seta!';
-
-    } catch (e) {
-        console.error("Error al iniciar cámara trasera:", e);
-        document.getElementById("label-container").innerHTML = '<span class="danger">No se pudo usar la cámara trasera. Usando cámara por defecto.</span>';
-
-        // fallback a cámara por defecto
         try {
-            webcam = new tmImage.Webcam(200, 200, true);
-            await webcam.setup();
-            await webcam.play();
-            document.getElementById("webcam-container").appendChild(webcam.canvas);
-            loop();
-        } catch (e2) {
-            document.getElementById("label-container").innerHTML = '<span class="danger">ERROR: La cámara no está disponible.</span>';
-            document.getElementById("cam-button").disabled = true;
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+            modelLoaded = true;
+            labelContainer.innerHTML = 'Modelo cargado con éxito. Listo.';
+        } catch (error) {
+            labelContainer.innerHTML = "<span class='danger'>ERROR: No se pudo cargar el modelo. Verifica tu ruta.</span>";
+            console.error("Fallo al cargar el modelo:", error);
+            throw error;
         }
     }
-}
+
+    // Inicializar la cámara trasera
+    async function init() {
+        await loadModel();
+
+        try {
+            // Detener cualquier cámara anterior
+            if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
+            if (webcam && webcam.running) webcam.stop();
+            document.getElementById("webcam-container").innerHTML = '';
+
+            const flip = false; // No voltear imagen (ideal para trasera)
+            webcam = new tmImage.Webcam(200, 200, flip);
+
+            // ⚡ PASO CLAVE: especificar la cámara trasera aquí
+            await webcam.setup({ facingMode: "environment" });
+            await webcam.play();
+
+            document.getElementById("webcam-container").appendChild(webcam.canvas);
+            document.getElementById("cam-button").disabled = true;
+
+            loop(); 
+            labelContainer.innerHTML = 'Cámara activa (trasera). ¡Enfoca la seta!';
+
+        } catch (e) {
+            console.error("Error al iniciar cámara trasera:", e);
+            labelContainer.innerHTML = '<span class="danger">No se pudo usar la cámara trasera. Usando cámara por defecto.</span>';
+
+            // fallback a cámara por defecto
+            try {
+                webcam = new tmImage.Webcam(200, 200, true);
+                await webcam.setup();
+                await webcam.play();
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                loop();
+            } catch (e2) {
+                labelContainer.innerHTML = '<span class="danger">ERROR: La cámara no está disponible.</span>';
+                document.getElementById("cam-button").disabled = true;
+            }
+        }
+    }
+
+    // Bucle de predicción
+    async function loop() {
+        webcam.update();
+        await predict(webcam.canvas);
+        animationFrameId = window.requestAnimationFrame(loop);
+    }
+
+    // Manejo de subida de archivos
+    async function handleFileUpload(event) {
+        await loadModel();
+
+        // Detener la cámara si estaba activa
+        if (webcam && webcam.running) {
+            webcam.stop();
+            if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
+            document.getElementById("cam-button").disabled = false;
+        }
+
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const img = new Image();
+        img.onload = async () => {
+            const container = document.getElementById("webcam-container");
+            container.innerHTML = '';
+            img.style.width = '200px';
+            img.style.height = '200px';
+            container.appendChild(img);
+
+            await predict(img);
+        };
+        img.src = URL.createObjectURL(file);
+    }
+
+    // Función de predicción
+    async function predict(imageElement) {
+        try {
+            const prediction = await model.predict(imageElement);
+
+            let highestPrediction = { className: "Desconocido", probability: 0 };
+
+            for (let i = 0; i < maxPredictions; i++) {
+                if (prediction[i].probability > highestPrediction.probability) {
+                    highestPrediction = prediction[i];
+                }
+            }
+
+            const probabilityPercent = (highestPrediction.probability * 100).toFixed(2);
+            let resultHTML = `CLASIFICACIÓN: <b>${highestPrediction.className}</b>`;
+            resultHTML += `<br>(Confianza: ${probabilityPercent}%)`;
+
+            const normalizedLabel = highestPrediction.className.toLowerCase();
+
+            if (normalizedLabel.includes("falsos rebollones") || normalizedLabel.includes("no comestible")) {
+                resultHTML += "<br><span class='danger'>🚨 ¡PELIGRO! Evite el consumo.</span>";
+            } else if (normalizedLabel.includes("rebollon")) {
+                resultHTML += "<br><span class='success'>✅ ¡Parece un Rebollón! (Consulte a un experto)</span>";
+            }
+
+            labelContainer.innerHTML = resultHTML;
+
+        } catch (e) {
+            labelContainer.innerHTML = "<span class='danger'>ERROR: Fallo al clasificar. Revisa la consola (F12).</span>";
+            console.error("Fallo en la función predict.", e);
+        }
+    }
+</script>
