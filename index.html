@@ -1,134 +1,55 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Clasificador de Setas 🍄</title>
-<style>
-    body { font-family: sans-serif; text-align: center; padding: 20px; }
-    #webcam-container { margin: 20px auto; width: 200px; height: 200px; border: 1px solid #ccc; }
-    video { width: 200px; height: 200px; object-fit: cover; }
-    .danger { color: red; font-weight: bold; }
-    .success { color: green; font-weight: bold; }
-</style>
-</head>
-<body>
-<h1>Clasificador de Setas</h1>
-
-<div id="controls">
-    <button type="button" onclick="init()" id="cam-button">Iniciar Cámara (Trasera)</button>
-    <input type="file" id="file-upload" accept="image/*" onchange="handleFileUpload(event)">
-    <p>O sube una imagen.</p>
-</div>
-
-<div id="webcam-container"></div>
-<div id="label-container">Carga el modelo y presiona "Iniciar Cámara" o sube una imagen.</div>
-
-<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-
-<script>
-const URL = "./my_model/";
-
-let model, maxPredictions;
-let animationFrameId;
-let video;
-
-async function loadModel() {
-    const labelContainer = document.getElementById("label-container");
-    labelContainer.innerHTML = 'Cargando modelo...';
-    try {
-        model = await tmImage.load(URL + "model.json", URL + "metadata.json");
-        maxPredictions = model.getTotalClasses();
-        labelContainer.innerHTML = 'Modelo cargado con éxito.';
-    } catch (error) {
-        labelContainer.innerHTML = "<span class='danger'>ERROR: No se pudo cargar el modelo.</span>";
-        console.error(error);
-    }
-}
-
+// ...
+// ** 1. Carga el modelo y configura la cámara (trasera) **
 async function init() {
-    await loadModel();
-    const container = document.getElementById("webcam-container");
-    container.innerHTML = '';
+    await loadModel(); // Asegura que el modelo esté cargado
 
-    video = document.createElement("video");
-    video.setAttribute("autoplay", "");
-    video.setAttribute("playsinline", ""); // obligatorio en iOS
-    video.width = 200;
-    video.height = 200;
-    container.appendChild(video);
-
+    // 2. Configuración de la cámara
     try {
-        // Intentar abrir cámara trasera
-        let stream;
-        try {
-            stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: "environment" },
-                audio: false
-            });
-        } catch (err) {
-            // fallback a cámara por defecto
-            console.warn("No se pudo abrir la trasera, usando cámara por defecto:", err);
-            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        }
+        // Detener el bucle anterior si existe
+        if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
+        if (webcam && webcam.running) webcam.stop();
+        document.getElementById("webcam-container").innerHTML = ''; // Limpiar contenedor
+        
+        // 1. Configuración de flip: FALSE para no voltear la imagen (ideal para la trasera)
+        const flip = false; 
+        
+        // 2. CREAMOS LA WEBCAM
+        webcam = new tmImage.Webcam(200, 200, flip);
 
-        video.srcObject = stream;
-        video.onloadedmetadata = () => {
-            video.play();
-            loop();
-            document.getElementById("cam-button").disabled = true;
-            document.getElementById("label-container").innerHTML = 'Cámara activa. ¡Enfoca la seta!';
+        // 3. 🎯 LÍNEA CRÍTICA: Especificar la cámara trasera antes de la configuración
+        // Esto le dice al navegador que busque la cámara orientada al entorno (trasera)
+        webcam.webcam = {
+            facingMode: "environment" 
         };
-
-    } catch (err) {
-        console.error("No se pudo acceder a la cámara:", err);
-        document.getElementById("label-container").innerHTML = '<span class="danger">ERROR: No se pudo acceder a la cámara.</span>';
-    }
-}
-
-async function loop() {
-    await predict(video);
-    animationFrameId = requestAnimationFrame(loop);
-}
-
-async function handleFileUpload(event) {
-    await loadModel();
-    if (video) video.pause();
-
-    const file = event.target.files[0];
-    if (!file) return;
-
-    const img = new Image();
-    img.onload = async () => {
-        const container = document.getElementById("webcam-container");
-        container.innerHTML = '';
-        img.width = 200;
-        img.height = 200;
-        container.appendChild(img);
-        await predict(img);
-    };
-    img.src = URL.createObjectURL(file);
-}
-
-async function predict(element) {
-    try {
-        const prediction = await model.predict(element);
-        let highest = { className: "Desconocido", probability: 0 };
-        for (let i = 0; i < maxPredictions; i++) {
-            if (prediction[i].probability > highest.probability) highest = prediction[i];
-        }
-        const prob = (highest.probability * 100).toFixed(2);
-        let resultHTML = `CLASIFICACIÓN: <b>${highest.className}</b><br>(Confianza: ${prob}%)`;
-        const label = highest.className.toLowerCase();
-        if (label.includes("falsos rebollones") || label.includes("no comestible")) resultHTML += "<br><span class='danger'>🚨 ¡PELIGRO! Evite el consumo.</span>";
-        else if (label.includes("rebollon")) resultHTML += "<br><span class='success'>✅ ¡Parece un Rebollón! (Consulte a un experto)</span>";
-        document.getElementById("label-container").innerHTML = resultHTML;
+        
+        await webcam.setup();
+        await webcam.play();
+        
+        document.getElementById("webcam-container").appendChild(webcam.canvas);
+        document.getElementById("cam-button").disabled = true;
+        
+        // 4. Inicia el bucle de predicción
+        loop(); 
+        document.getElementById("label-container").innerHTML = 'Cámara activa (trasera). ¡Enfoca la seta!';
     } catch (e) {
-        console.error(e);
-        document.getElementById("label-container").innerHTML = "<span class='danger'>ERROR al clasificar.</span>";
+         // Si la cámara trasera falla (por permisos, o el dispositivo no la soporta así)
+         document.getElementById("label-container").innerHTML = '<span class="danger">ERROR: No se pudo iniciar la cámara trasera. Usando la cámara por defecto.</span>';
+         console.error("Fallo al intentar forzar la cámara trasera:", e);
+         
+         // Intento de fallback a la cámara por defecto (delantera o trasera, según el navegador)
+         try {
+             webcam = new tmImage.Webcam(200, 200, true); // Vuelve a intentar con flip=true por defecto
+             await webcam.setup();
+             await webcam.play();
+             document.getElementById("webcam-container").appendChild(webcam.canvas);
+             loop();
+         } catch (e2) {
+             document.getElementById("label-container").innerHTML = '<span class="danger">ERROR: La cámara no está disponible. Sube una imagen.</span>';
+             document.getElementById("cam-button").disabled = true;
+         }
     }
 }
-</script>
+// ...
 </body>
 </html>
+
