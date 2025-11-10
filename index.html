@@ -61,47 +61,74 @@
             }
         }
 
-        // ** 1. Carga el modelo y configura la cámara (trasera) **
+        // ** Inicializa la cámara trasera (con fallback a la predeterminada) **
         async function init() {
-            await loadModel(); // Asegura que el modelo esté cargado
+            await loadModel();
 
-            // 2. Configuración de la cámara
             try {
-                // Detener el bucle anterior si existe
                 if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
                 if (webcam && webcam.running) webcam.stop();
-                document.getElementById("webcam-container").innerHTML = ''; // Limpiar contenedor
-                
-                // CAMBIO CLAVE: false desactiva el volteo y usa la cámara trasera/principal
+                document.getElementById("webcam-container").innerHTML = '';
+
                 const flip = false; 
                 webcam = new tmImage.Webcam(200, 200, flip);
-                await webcam.setup();
-                await webcam.play();
-                
-                document.getElementById("webcam-container").appendChild(webcam.canvas);
-                document.getElementById("cam-button").disabled = true;
-                
-                // 3. Inicia el bucle de predicción
-                loop(); 
-                document.getElementById("label-container").innerHTML = 'Cámara activa (trasera). ¡Enfoca la seta!';
+
+                // Intentar usar la cámara trasera
+                const constraints = {
+                    audio: false,
+                    video: {
+                        facingMode: { exact: "environment" } // intenta usar la cámara trasera
+                    }
+                };
+
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    webcam.webcam = document.createElement('video');
+                    webcam.webcam.srcObject = stream;
+                    webcam.webcam.setAttribute("playsinline", true);
+                    await webcam.webcam.play();
+
+                    webcam.canvas = document.createElement('canvas');
+                    webcam.canvas.width = 200;
+                    webcam.canvas.height = 200;
+
+                    document.getElementById("webcam-container").appendChild(webcam.canvas);
+                    document.getElementById("cam-button").disabled = true;
+
+                    loop();
+                    document.getElementById("label-container").innerHTML =
+                        'Cámara trasera activa. ¡Enfoca la seta!';
+                } catch (err) {
+                    // Si falla (por ejemplo en escritorio o permisos), usar la cámara normal
+                    console.warn("No se pudo usar la cámara trasera, se intentará con la predeterminada.", err);
+                    await webcam.setup();
+                    await webcam.play();
+                    document.getElementById("webcam-container").appendChild(webcam.canvas);
+                    loop();
+                    document.getElementById("label-container").innerHTML =
+                        'Usando cámara predeterminada.';
+                }
             } catch (e) {
-                 document.getElementById("label-container").innerHTML = '<span class="danger">ERROR: No se pudo iniciar la cámara. Sube una imagen en su lugar.</span>';
-                 console.error("Fallo al iniciar la cámara:", e);
+                document.getElementById("label-container").innerHTML =
+                    '<span class="danger">ERROR: No se pudo iniciar la cámara. Sube una imagen en su lugar.</span>';
+                console.error("Fallo al iniciar la cámara:", e);
             }
         }
 
-        // ** 2. Bucle de cámara **
+        // Bucle de cámara
         async function loop() {
-            webcam.update(); 
-            await predict(webcam.canvas);
+            if (webcam && webcam.webcam && webcam.webcam.readyState === 4) {
+                const ctx = webcam.canvas.getContext('2d');
+                ctx.drawImage(webcam.webcam, 0, 0, 200, 200);
+                await predict(webcam.canvas);
+            }
             animationFrameId = window.requestAnimationFrame(loop);
         }
 
-        // ** 3. Manejo de subida de archivos **
+        // Manejo de subida de archivos
         async function handleFileUpload(event) {
             await loadModel();
 
-            // Detener la cámara si estaba activa
             if (webcam && webcam.running) {
                 webcam.stop();
                 if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
@@ -124,7 +151,7 @@
             img.src = URL.createObjectURL(file);
         }
 
-        // ** 4. Función de Predicción **
+        // Predicción
         async function predict(imageElement) {
             try {
                 const prediction = await model.predict(imageElement);
@@ -137,12 +164,10 @@
                     }
                 }
                 
-                // Mostrar el resultado más probable
                 const probabilityPercent = (highestPrediction.probability * 100).toFixed(2);
                 let resultHTML = `CLASIFICACIÓN: <b>${highestPrediction.className}</b>`;
                 resultHTML += `<br>(Confianza: ${probabilityPercent}%)`;
                 
-                // Advertencia de seguridad
                 const normalizedLabel = highestPrediction.className.toLowerCase();
                 
                 if (normalizedLabel.includes("falsos rebollones") || normalizedLabel.includes("no comestible")) {
@@ -154,7 +179,8 @@
                 document.getElementById("label-container").innerHTML = resultHTML;
 
             } catch (e) {
-                document.getElementById("label-container").innerHTML = "<span class='danger'>ERROR: Fallo al clasificar. Revisa la consola (F12).</span>";
+                document.getElementById("label-container").innerHTML =
+                    "<span class='danger'>ERROR: Fallo al clasificar. Revisa la consola (F12).</span>";
                 console.error("Fallo en la función predict.", e);
             }
         }
