@@ -1,37 +1,4 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clasificador de Setas 🍄</title>
-    <style>
-        body { font-family: sans-serif; text-align: center; padding: 20px; }
-        #webcam-container, #image-container { 
-            margin: 20px auto; 
-            width: 200px;
-            height: 200px;
-            border: 1px solid #ccc; 
-        }
-        .danger { color: red; font-weight: bold; }
-        .success { color: green; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <h1>Clasificador de Setas</h1>
-    
-    <div id="controls">
-        <button type="button" onclick="init()" id="cam-button">Iniciar Cámara (Trasera)</button>
-        <input type="file" id="file-upload" accept="image/*" onchange="handleFileUpload(event)">
-        <p>O sube una imagen.</p>
-    </div>
-
-    <div id="webcam-container"></div>
-    <div id="label-container">Carga el modelo y presiona "Iniciar Cámara" o sube una imagen.</div>
-
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
-    
-    <script type="text/javascript">
+<script type="text/javascript">
         // La URL del modelo apunta a tu carpeta en GitHub Pages
         const URL = "./my_model/"; 
 
@@ -39,29 +6,12 @@
         let modelLoaded = false;
         let animationFrameId;
 
-        // Función para cargar el modelo (solo una vez)
         async function loadModel() {
             if (modelLoaded) return;
-            
-            labelContainer = document.getElementById("label-container");
-            labelContainer.innerHTML = 'Cargando modelo y metadatos...';
-            
-            const modelURL = URL + "model.json";
-            const metadataURL = URL + "metadata.json";
-
-            try {
-                model = await tmImage.load(modelURL, metadataURL);
-                maxPredictions = model.getTotalClasses();
-                modelLoaded = true;
-                labelContainer.innerHTML = 'Modelo cargado con éxito. Listo.';
-            } catch (error) {
-                labelContainer.innerHTML = "<span class='danger'>ERROR: No se pudo cargar el modelo. Verifica tu ruta en GitHub Pages.</span>";
-                console.error("Fallo al cargar el modelo:", error);
-                throw error;
-            }
+            // ... (código de carga del modelo) ...
         }
 
-        // ** 1. Carga el modelo y configura la cámara (trasera) **
+        // ** 1. Carga el modelo y configura la cámara (delantera) **
         async function init() {
             await loadModel(); // Asegura que el modelo esté cargado
 
@@ -70,10 +20,10 @@
                 // Detener el bucle anterior si existe
                 if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
                 if (webcam && webcam.running) webcam.stop();
-                document.getElementById("webcam-container").innerHTML = ''; // Limpiar contenedor
+                document.getElementById("webcam-container").innerHTML = ''; 
                 
-                // CAMBIO CLAVE: false desactiva el volteo y usa la cámara trasera/principal
-                const flip = false; 
+                // CAMBIO CLAVE AQUÍ: true activa el volteo horizontal (cámara delantera)
+                const flip = true; 
                 webcam = new tmImage.Webcam(200, 200, flip);
                 await webcam.setup();
                 await webcam.play();
@@ -83,13 +33,15 @@
                 
                 // 3. Inicia el bucle de predicción
                 loop(); 
-                document.getElementById("label-container").innerHTML = 'Cámara activa (trasera). ¡Enfoca la seta!';
+                document.getElementById("label-container").innerHTML = 'Cámara activa (delantera). ¡Enfoca la seta!';
             } catch (e) {
                  document.getElementById("label-container").innerHTML = '<span class="danger">ERROR: No se pudo iniciar la cámara. Sube una imagen en su lugar.</span>';
                  console.error("Fallo al iniciar la cámara:", e);
             }
         }
 
+        // ... (resto de las funciones loop, handleFileUpload y predict son las mismas) ...
+        
         // ** 2. Bucle de cámara **
         async function loop() {
             webcam.update(); 
