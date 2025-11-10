@@ -1,159 +1,152 @@
-<script type="text/javascript">
-    // **Ruta de la carpeta local donde están los 3 archivos**
-    const URL = "./my_model/"; 
-
-    let model, webcam, labelContainer, maxPredictions;
-    let modelLoaded = false;
-    let animationFrameId; // Para manejar el bucle de la cámara
-
-    // Función para cargar el modelo (solo una vez)
-    async function loadModel() {
-        if (modelLoaded) return;
-        
-        labelContainer = document.getElementById("label-container");
-        labelContainer.innerHTML = 'Cargando modelo y metadatos... (Esto puede tardar)';
-        console.log("1. Intentando cargar el modelo desde:", URL);
-
-        const modelURL = URL + "model.json";
-        const metadataURL = URL + "metadata.json";
-
-        try {
-            model = await tmImage.load(modelURL, metadataURL);
-            maxPredictions = model.getTotalClasses();
-            modelLoaded = true;
-            labelContainer.innerHTML = 'Modelo cargado con éxito. Listo.';
-            console.log("2. Modelo cargado con éxito. Clases:", maxPredictions);
-        } catch (error) {
-            labelContainer.innerHTML = "<span class='danger'>ERROR: No se pudo cargar el modelo. Revisa la consola (F12).</span>";
-            console.error("ERROR 1: Fallo crítico al cargar el modelo.", error);
-            throw error;
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clasificador de Setas 🍄</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; padding: 20px; }
+        #webcam-container, #image-container { 
+            margin: 20px auto; 
+            width: 200px;
+            height: 200px;
+            border: 1px solid #ccc; 
         }
-    }
-
-
-    // **INIT**: Inicia la cámara
-    async function init(useWebcam) {
-        try {
-            await loadModel(); 
-
-            if (!useWebcam) return; 
-            
-            // Detener el bucle anterior si existe
-            if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
-            if (webcam && webcam.running) webcam.stop();
-
-            document.getElementById("webcam-container").innerHTML = ''; 
-
-            console.log("3. Configurando la cámara.");
-            const flip = true; 
-            webcam = new tmImage.Webcam(200, 200, flip);
-            await webcam.setup(); 
-            await webcam.play();
-            
-            document.getElementById("webcam-container").appendChild(webcam.canvas);
-            document.getElementById("cam-button").disabled = true;
-            labelContainer.innerHTML = '¡Enfoca la seta! (Cámara activa)';
-            
-            // Iniciar el bucle de clasificación
-            console.log("4. Iniciando el bucle de clasificación de cámara.");
-            loop(); // Llamamos a loop sin requestAnimationFrame inicialmente
-        } catch (e) {
-            console.error("ERROR 2: Fallo en la inicialización de la cámara.", e);
-        }
-    }
-
-    // **LOOP** (Solo para cámara)
-    async function loop() {
-        webcam.update(); 
-        await predict(webcam.canvas);
-        // Volver a llamar a loop usando requestAnimationFrame para el siguiente frame
-        animationFrameId = window.requestAnimationFrame(loop); 
-    }
+        .danger { color: red; font-weight: bold; }
+        .success { color: green; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Clasificador de Setas</h1>
     
-    // **MANEJO DE SUBIDA DE IMAGEN**
-    async function handleImageUpload(event) {
-        try {
-            await loadModel();
+    <div id="controls">
+        <button type="button" onclick="init()">Iniciar Cámara</button>
+        <input type="file" id="file-upload" accept="image/*" onchange="handleFileUpload(event)">
+        <p>O sube una imagen.</p>
+    </div>
 
-            const file = event.target.files[0];
-            if (!file) return;
+    <div id="webcam-container"></div>
+    <div id="label-container">Cargando modelo...</div>
 
-            // Detenemos la cámara si estaba activa
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    
+    <script type="text/javascript">
+        // La URL del modelo apunta a tu carpeta local en GitHub Pages
+        const URL = "./my_model/";
+
+        let model, webcam, labelContainer, maxPredictions;
+        let modelLoaded = false;
+        let animationFrameId;
+
+        // ** 1. Carga el modelo y configura la cámara (si es necesario) **
+        async function init() {
+            if (!modelLoaded) {
+                document.getElementById("label-container").innerHTML = 'Cargando modelo...';
+                
+                const modelURL = URL + "model.json";
+                const metadataURL = URL + "metadata.json";
+                
+                try {
+                    model = await tmImage.load(modelURL, metadataURL);
+                    maxPredictions = model.getTotalClasses();
+                    modelLoaded = true;
+                } catch (e) {
+                    document.getElementById("label-container").innerHTML = '<span class="danger">ERROR al cargar el modelo. Asegúrate de que los archivos estén en la carpeta "my_model/".</span>';
+                    console.error("Fallo al cargar el modelo:", e);
+                    return;
+                }
+            }
+
+            // 2. Configuración de la cámara
+            try {
+                // Detener el bucle anterior si existe
+                if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
+                if (webcam && webcam.running) webcam.stop();
+                document.getElementById("webcam-container").innerHTML = ''; // Limpiar contenedor
+                
+                const flip = true;
+                webcam = new tmImage.Webcam(200, 200, flip);
+                await webcam.setup();
+                await webcam.play();
+                
+                document.getElementById("webcam-container").appendChild(webcam.canvas);
+                
+                // 3. Inicia el bucle de predicción
+                loop(); 
+                document.getElementById("label-container").innerHTML = 'Cámara activa. ¡Enfoca la seta!';
+            } catch (e) {
+                 document.getElementById("label-container").innerHTML = '<span class="danger">ERROR: No se pudo iniciar la cámara. Sube una imagen en su lugar.</span>';
+                 console.error("Fallo al iniciar la cámara:", e);
+            }
+        }
+
+        // ** 2. Bucle de cámara **
+        async function loop() {
+            webcam.update(); 
+            await predict(webcam.canvas);
+            animationFrameId = window.requestAnimationFrame(loop);
+        }
+
+        // ** 3. Manejo de subida de archivos **
+        async function handleFileUpload(event) {
+            // Cargar el modelo si aún no lo está
+            if (!modelLoaded) {
+                await init();
+                if (!modelLoaded) return; // Si falla la carga, detenemos
+            }
+
+            // Detener la cámara si estaba activa
             if (webcam && webcam.running) {
                 webcam.stop();
                 if (animationFrameId) window.cancelAnimationFrame(animationFrameId);
-                document.getElementById("cam-button").disabled = false;
             }
+            
+            const file = event.target.files[0];
+            if (!file) return;
 
-            // Muestra la imagen subida
             const img = new Image();
             img.onload = async () => {
-                console.log("5. Imagen cargada en el DOM. Iniciando predicción...");
                 const container = document.getElementById("webcam-container");
-                container.innerHTML = ''; 
-                img.style.maxWidth = '100%'; 
-                img.style.height = 'auto';
+                container.innerHTML = '';
+                // Mostrar imagen en lugar del canvas de la webcam
+                img.style.width = '200px'; 
+                img.style.height = '200px';
                 container.appendChild(img);
                 
-                // La llamada a predict con la imagen es CRÍTICA
                 await predict(img);
             };
             img.src = URL.createObjectURL(file);
-        } catch (e) {
-             console.error("ERROR 3: Fallo en la subida de imagen.", e);
         }
-    }
 
-    // **PREDICT**: Función principal de clasificación
-    async function predict(imageElement) {
-        try {
-            // Aseguramos que el elemento sea un canvas/imagen válido.
-            if (!imageElement) return; 
+        // ** 4. Función de Predicción (Actualizada para mostrar el mejor resultado) **
+        async function predict(imageElement) {
+            const prediction = await model.predict(imageElement);
             
-            const prediction = await model.predict(imageElement, false);
-            
-            let highestPrediction = { className: "Desconocido", probability: 0, originalIndex: -1 };
+            let highestPrediction = { className: "Desconocido", probability: 0 };
 
-            // 1. Encontrar la clase con mayor probabilidad
             for (let i = 0; i < maxPredictions; i++) {
-                const classPrediction = prediction[i];
-                if (classPrediction.probability > highestPrediction.probability) {
-                    highestPrediction = {
-                        className: classPrediction.className,
-                        probability: classPrediction.probability,
-                        originalIndex: i
-                    };
+                if (prediction[i].probability > highestPrediction.probability) {
+                    highestPrediction = prediction[i];
                 }
             }
             
-            // 2. Obtener las etiquetas del modelo
-            const labels = model.getClassLabels();
-            const predictedLabel = labels[highestPrediction.originalIndex];
-
-            // 3. Mostrar el resultado
+            // Mostrar el resultado más probable
             const probabilityPercent = (highestPrediction.probability * 100).toFixed(2);
-            let resultHTML = `<div class="result-title">CLASIFICACIÓN: ${predictedLabel}</div>`;
-            resultHTML += `<div>(Confianza: ${probabilityPercent}%)</div>`;
+            let resultHTML = `CLASIFICACIÓN: <b>${highestPrediction.className}</b>`;
+            resultHTML += `<br>(Confianza: ${probabilityPercent}%)`;
             
-            // 4. Advertencia de seguridad
-            const normalizedLabel = predictedLabel.toLowerCase();
+            // Advertencia de seguridad
+            const normalizedLabel = highestPrediction.className.toLowerCase();
             
             if (normalizedLabel.includes("falsos rebollones") || normalizedLabel.includes("no comestible")) {
                 resultHTML += "<br><span class='danger'>🚨 ¡PELIGRO! Evite el consumo.</span>";
             } else if (normalizedLabel.includes("rebollon")) {
-                resultHTML += "<br><span class='success'>✅ ¡Parece un Rebollón! (Consulte siempre a un experto)</span>";
+                resultHTML += "<br><span class='success'>✅ ¡Parece un Rebollón! (Consulte a un experto)</span>";
             }
             
-            labelContainer.innerHTML = resultHTML;
-            console.log("6. Predicción exitosa. Resultado mostrado:", predictedLabel);
-
-        } catch (e) {
-            labelContainer.innerHTML = "<span class='danger'>ERROR: Fallo al clasificar la imagen. Revisa la consola (F12).</span>";
-            console.error("ERROR 4: Fallo en la función predict.", e);
+            document.getElementById("label-container").innerHTML = resultHTML;
         }
-    }
-</script>
     </script>
 </body>
-
 </html>
