@@ -37,9 +37,14 @@ let video;
 async function loadModel() {
     const labelContainer = document.getElementById("label-container");
     labelContainer.innerHTML = 'Cargando modelo...';
-    model = await tmImage.load(URL + "model.json", URL + "metadata.json");
-    maxPredictions = model.getTotalClasses();
-    labelContainer.innerHTML = 'Modelo cargado con éxito.';
+    try {
+        model = await tmImage.load(URL + "model.json", URL + "metadata.json");
+        maxPredictions = model.getTotalClasses();
+        labelContainer.innerHTML = 'Modelo cargado con éxito.';
+    } catch (error) {
+        labelContainer.innerHTML = "<span class='danger'>ERROR: No se pudo cargar el modelo.</span>";
+        console.error(error);
+    }
 }
 
 async function init() {
@@ -55,17 +60,30 @@ async function init() {
     container.appendChild(video);
 
     try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false });
+        // Intentar abrir cámara trasera
+        let stream;
+        try {
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { facingMode: "environment" },
+                audio: false
+            });
+        } catch (err) {
+            // fallback a cámara por defecto
+            console.warn("No se pudo abrir la trasera, usando cámara por defecto:", err);
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        }
+
         video.srcObject = stream;
         video.onloadedmetadata = () => {
             video.play();
             loop();
             document.getElementById("cam-button").disabled = true;
-            document.getElementById("label-container").innerHTML = 'Cámara trasera activa. ¡Enfoca la seta!';
+            document.getElementById("label-container").innerHTML = 'Cámara activa. ¡Enfoca la seta!';
         };
+
     } catch (err) {
-        console.error(err);
-        document.getElementById("label-container").innerHTML = '<span class="danger">No se pudo acceder a la cámara trasera.</span>';
+        console.error("No se pudo acceder a la cámara:", err);
+        document.getElementById("label-container").innerHTML = '<span class="danger">ERROR: No se pudo acceder a la cámara.</span>';
     }
 }
 
